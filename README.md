@@ -753,5 +753,723 @@ Then the `executeLiquidationCall()` from `LiquidationLogic`  library get  trigge
 - `_reserves` : The state of all the reserves
 - `_reservesList` : The addresses of all the active reserves
 - `_eModeCategories` : The configuration of all the efficiency mode categories
+- A `DataTypes.ExecuteLiquidationCallParams` object, which is a struct that holds all the parameters for the liquidation process. This includes:
+- `reservesCount`: The total count of reserves.
+- `debtToCover`: The amount of the debt asset that needs to be covered.
+- `collateralAsset` and `debtAsset`: The addresses of the collateral and debt assets.
+- `user`: The address of the user being liquidated.
+- `receiveAToken`: A boolean value indicating whether the user expects to receive an AToken as part of the liquidation process.
+- `priceOracle`: A function that returns the price oracle for the reserves.
+- `userEModeCategory`: The category of the user's EMode.
+- `priceOracleSentinel`: A function that returns the price oracle sentinel for the reserves.
 
-the `ExecuteLiquidationCallParams()` from the `DataTypes` library is also called as a parameter
+**`function flashLoan()`**
+
+The `flashLoan` function allows users  to execute flash loans, borrowing assets without providing collateral, as long as they return the borrowed amount by the end of the transaction. The`FlashLoanLogic` library is responsible for executing the flash loan and handling the various parameters associated with it, including premiums and authorization checks.
+
+```solidity
+function flashLoan(
+    address receiverAddress,
+    address[] calldata assets,
+    uint256[] calldata amounts,
+    uint256[] calldata interestRateModes,
+    address onBehalfOf,
+    bytes calldata params,
+    uint16 referralCode
+  ) public virtual override {
+    DataTypes.FlashloanParams memory flashParams = DataTypes.FlashloanParams({
+      receiverAddress: receiverAddress,
+      assets: assets,
+      amounts: amounts,
+      interestRateModes: interestRateModes,
+      onBehalfOf: onBehalfOf,
+      params: params,
+      referralCode: referralCode,
+      flashLoanPremiumToProtocol: _flashLoanPremiumToProtocol,
+      flashLoanPremiumTotal: _flashLoanPremiumTotal,
+      maxStableRateBorrowSizePercent: _maxStableRateBorrowSizePercent,
+      reservesCount: _reservesCount,
+      addressesProvider: address(ADDRESSES_PROVIDER),
+      userEModeCategory: _usersEModeCategory[onBehalfOf],
+      isAuthorizedFlashBorrower: IACLManager(ADDRESSES_PROVIDER.getACLManager()).isFlashBorrower(
+        msg.sender
+      )
+    });
+
+    FlashLoanLogic.executeFlashLoan(
+      _reserves,
+      _reservesList,
+      _eModeCategories,
+      _usersConfig[onBehalfOf],
+      flashParams
+    );
+  }
+```
+
+It takes in the following parameters:
+
+- `address receiverAddress` : The address of the contract receiving the funds, implementing IFlashLoanReceiver interface
+- `address[] calldata assets` : The addresses of the assets being flash-borrowed as user can borrow more than one asset in a single transaction
+- `uint256[] calldata amounts` : The amounts of the assets being flash-borrowed
+- `uint256[] calldata interestRateModes` : Types of the debt to open if the flash loan is not returned:
+    - 0 -> Don't open any debt, just revert if funds can't be transferred from the receiver
+    - 1 -> Open debt at stable rate for the value of the amount flash-borrowed to the `onBehalfOf` address
+    - 2 -> Open debt at variable rate for the value of the amount flash-borrowed to the `onBehalfOf` address
+- `address onBehalfOf` : The address that will receive the debt in the case of using on `modes` 1 or 2
+- `bytes calldata params` : Variadic packed params to pass to the receiver as extra information
+- `uint16 referralCode` :  The code used to register the integrator originating the operation, for potential rewards. 0 if the action is executed directly by the user, without any middle-man.
+
+Inside the function, it first creates a `FlashloanParams`object that holds all the parameters for the flash loan. This includes the receiver address, the assets and amounts to be borrowed, the interest rate modes, the user the loan is being made on behalf of, the additional parameters, the flash loan premium to the protocol, the total flash loan premium, the maximum stable rate borrow size percent, the reserves count, the addresses provider, the user's EMode category, and aboolean indicating whether the sender is an authorized flash borrower.
+
+After creating the `FlashloanParams` object, it calls `FlashLoanLogic.executeFlashLoan`
+ with several parameters. This function is part of the `FlashLoanLogic` library , and it's responsible for executing the logic of the flash loan. The parameters passed to it include:
+
+- `_reserves` : The state of all the reserves
+- `_reservesList` : The addresses of all the active reserves
+- `_eModeCategories` : The configuration of all the efficiency mode categories
+- `_usersConfig[onBehalfOf]` The configuration of the user the loan is being made on behalf of.
+- `flashParams` which is the `FlashloanParams` object created earlier.
+
+`**function flashLoanSimple()**`
+
+The `flashLoanSimple` function is a simplified version of a flash loan that allows users to borrow a specific amount of a single asset. This is a more straightforward way to utilize flash loans for 
+borrowing purposes compared to the more complex `flashLoan` function, especially when the use case involves a single asset.
+
+```solidity
+function flashLoanSimple(
+    address receiverAddress,
+    address asset,
+    uint256 amount,
+    bytes calldata params,
+    uint16 referralCode
+  ) public virtual override {
+    DataTypes.FlashloanSimpleParams memory flashParams = DataTypes.FlashloanSimpleParams({
+      receiverAddress: receiverAddress,
+      asset: asset,
+      amount: amount,
+      params: params,
+      referralCode: referralCode,
+      flashLoanPremiumToProtocol: _flashLoanPremiumToProtocol,
+      flashLoanPremiumTotal: _flashLoanPremiumTotal
+    });
+    FlashLoanLogic.executeFlashLoanSimple(_reserves[asset], flashParams);
+  }
+```
+
+It takes in the parameters below;
+
+- `address receiverAddress` : The address of the contract receiving the funds, implementing IFlashLoanSimpleReceiver interface
+- `address asset` : The address of the asset being flash-borrowed
+- `uint256 amount` : The amount of the asset being flash-borrowed
+- `bytes calldata params` : Variadic packed params to pass to the receiver as extra information
+- `uint16 referralCode` : The code used to register the integrator originating the operation, for potential rewards. 0 if the action is executed directly by the user, without any middle-man
+
+Inside the function, it first creates a `FlashloanSimpleParams` object that holds all the parameters for the flash loan. This includes the receiver address, the asset and amount to be borrowed, the 
+additional parameters, and the flash loan premium to the protocol and the total flash loan premium.
+
+After creating the `FlashloanSimpleParams` object, it calls `FlashLoanLogic.executeFlashLoanSimple` with two parameters. This function is part of the `FlashLoanLogic` library  and it's responsible for executing the logic of the 
+simple flash loan. The parameters passed to it include:
+
+- `_reserves[asset]` which is the reserve of the asset to be borrowed.
+- `flashParams` which is the `FlashloanSimpleParams` object created earlier.
+
+`**function getReserveData()**`
+
+The  `getReserveData` function is a query function that allows external callers to retrieve detailed data about a specific reserve for a given asset. This data  includes information about interest 
+rates, utilization, available collateral, and other attributes associated with that reserve. The function does not modify the contract's state and is designed for transparency and information retrieval.
+
+```solidity
+function getReserveData(
+    address asset
+  ) external view virtual override returns (DataTypes.ReserveData memory) {
+    return _reserves[asset];
+  }
+```
+
+The function takes in the address of the asset and then it 
+
+- `returns (DataTypes.ReserveData memory)`:
+    - `ReserveData` struct, defined in the `DataTypes` library , encapsulated in memory. The struct represents detailed information about a reserve.
+- `return _reserves[asset]`:
+    - This line retrieves the `ReserveData` information for the specified asset (`asset`) from the contract's internal data structure. The `_reserves` mapping is used to store and access data related to different reserves.
+
+`**function getUserAccountData()**`
+
+The `getUserAccountData` function provides a comprehensive view of a user's financial status within the protocol. It returns key metrics such as collateral, debt, borrowing capacity, risk thresholds, loan-to-value ratio, and health factor. This information is vital for users to monitor and manage their positions within the protocol.
+
+```solidity
+function getUserAccountData(
+    address user
+  )
+    external
+    view
+    virtual
+    override
+    returns (
+      uint256 totalCollateralBase,
+      uint256 totalDebtBase,
+      uint256 availableBorrowsBase,
+      uint256 currentLiquidationThreshold,
+      uint256 ltv,
+      uint256 healthFactor
+    )
+  {
+    return
+      PoolLogic.executeGetUserAccountData(
+        _reserves,
+        _reservesList,
+        _eModeCategories,
+        DataTypes.CalculateUserAccountDataParams({
+          userConfig: _usersConfig[user],
+          reservesCount: _reservesCount,
+          user: user,
+          oracle: ADDRESSES_PROVIDER.getPriceOracle(),
+          userEModeCategory: _usersEModeCategory[user]
+        })
+      );
+  }
+```
+
+The function takes one parameter
+
+1. `user`: This is the address of the user whose account data is to be retrieved.
+
+The function is marked as `external`, meaning it can only be called from outside the contract, `view`, indicating that it doesn't modify the contract's state, and `virtual`, indicating that it can be overridden in a derived contract. The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract.
+
+Inside the function, it calls `PoolLogic.executeGetUserAccountData`
+ with several parameters, which is part of a the `PoolLogic` library , and it's responsible for executing the logic ofretrieving the user account data. The parameters passed to it include:
+
+- `_reserves` : The state of all the reserves
+- `_reservesList` : The addresses of all the active reserves
+- `_eModeCategories` : The configuration of all the efficiency mode categories
+- A `DataTypes.CalculateUserAccountDataParams` object, which is a struct that holds all the parameters for calculating the user account data. This includes:
+    - `userConfig`: The configuration of the user.
+    - `reservesCount`: The total count of reserves.
+    - `user`: The address of the user.
+    - `oracle`: The price oracle for the reserves.
+    - `userEModeCategory`: The category of the user's EMode.
+
+`**function getConfiguration()**`
+
+The function returns the configuration of the reserve
+
+```solidity
+function getConfiguration(
+    address asset
+  ) external view virtual override returns (DataTypes.ReserveConfigurationMap memory) {
+    return _reserves[asset].configuration;
+  }
+```
+
+The function takes one parameter:
+
+1. `asset`: This is the address of the asset whose reserve configuration is to be retrieved.
+
+The function is marked as `external`, meaning it can only be called from outside the contract, `view`, indicating that it doesn't modify the contract's state, and `virtual`, indicating that it can be overridden in a derived contract. The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract.
+
+Inside the function, it returns `_reserves[asset].configuration`. The`_reserves` is a mapping that holds data about each reserve. Each reserve is an object that has a `configuration` property. The function retrieves the `configuration` property for the specified asset and returns it.
+
+`**function getUserConfiguration()**`
+
+Here, the function returns the configuration of the user across all the reserves
+
+```solidity
+function getUserConfiguration(
+    address user
+  ) external view virtual override returns (DataTypes.UserConfigurationMap memory) {
+    return _usersConfig[user];
+  }
+```
+
+The function takes one parameter:
+
+1. `user`: This is the address of the user whose configuration is to be retrieved.
+
+The function is marked as `external`, meaning it can only be called from outside the contract, `view`, indicating that it doesn't modify the contract's state, and `virtual`, indicating that it can be overridden in a derived contract. The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract.
+
+Inside the function, it returns `_usersConfig[user]`. The `_usersConfig` is a mapping that holds data about each user's configuration. Each user's configuration is an object that holds various settings or attributes related to that user. The function retrieves the 
+configuration for the specified user and returns it.
+
+`**function getReserveNormalizedIncome()**`
+
+This function returns the normalized income of the reserve
+
+```solidity
+function getReserveNormalizedIncome(
+    address asset
+  ) external view virtual override returns (uint256) {
+    return _reserves[asset].getNormalizedIncome();
+  }
+```
+
+The function takes one parameter:
+
+1. `asset`: This is the address of the asset whose reserve normalized income is to be retrieved.
+
+It is marked as `external`, which means it can only be called from outside the contract, `view`, indicating that it doesn't modify the contract's state, and `virtual`, indicating that it can be overridden in a derived contract. The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract.
+
+Inside the function, it returns `_reserves[asset].getNormalizedIncome()`. The`_reserves` is a mapping that holds data about each reserve. Each reserve is an object that has a `getNormalizedIncome` method. The function retrieves the normalized income for the specified asset by calling the `getNormalizedIncome` method and returns it.
+
+**`function getReserveNormalizedVariableDebt()`**
+
+The function returns the normalized variable debt per unit of asset.
+
+It is highly important to note that this function is intended to be used primarily by the protocol itself to get a "dynamic" variable index based on time, current stored index and virtual rate at the current
+
+moment (approx. a borrower would get if opening a position). This means that is always used in
+
+combination with variable debt supply/balances.
+
+If using this function externally, consider that is possible to have an increasing normalized
+
+variable debt that is not equivalent to how the variable debt index would be updated in storage
+
+(e.g. only updates with non-zero variable debt supply).
+
+It takes the address of the underlying asset of the reserve and returns the reserve normalized variable debt
+
+```solidity
+function getReserveNormalizedVariableDebt(
+    address asset
+  ) external view virtual override returns (uint256) {
+    return _reserves[asset].getNormalizedDebt();
+  }
+```
+
+**`function getReservesList()`**
+
+The `getReservesList` function retrieves a list of non-empty reserve addresses within the protocol, excluding any reserves with the zero address. It ensures that the returned list contains only valid 
+reserve addresses, providing transparency about the available reserves in the protocol.
+
+```solidity
+function getReservesList() external view virtual override returns (address[] memory) {
+    uint256 reservesListCount = _reservesCount;
+    uint256 droppedReservesCount = 0;
+    address[] memory reservesList = new address[](reservesListCount);
+
+    for (uint256 i = 0; i < reservesListCount; i++) {
+      if (_reservesList[i] != address(0)) {
+        reservesList[i - droppedReservesCount] = _reservesList[i];
+      } else {
+        droppedReservesCount++;
+      }
+    }
+
+    // Reduces the length of the reserves array by `droppedReservesCount`
+    assembly {
+      mstore(reservesList, sub(reservesListCount, droppedReservesCount))
+    }
+    return reservesList;
+  }
+```
+
+The function can only be called from outside the contract because it is marked as `external`, `view`, indicating that it doesn't modify the contract's state, and `virtual`, indicating that it can be overridden in a derived contract. The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract.
+
+Inside the function, it first creates an array `reservesList` with a size equal to `_reservesCount`, which is the total count of reserves. It then iterates over `_reservesList`, and for each reserve that is not the zero address, it adds the reserve to `reservesList`, skipping over the zero addresses. The number of zero addresses is tracked in `droppedReservesCount`.
+
+Finally, it uses inline assembly to adjust the length of `reservesList` by subtracting `droppedReservesCount` from its original length. This is done because the array was initially created with a size equal to `_reservesCount`, but not all of these slots may have been used due to the zero addresses.
+
+The function returns `reservesList`, which now contains the addresses of all non-zero reserves in the order they appear in `_reservesList`.
+
+`**function getReserveAddressById()**`
+
+This function returns the address of the underlying asset of a reserve by the reserve id as stored in the `DataTypes.ReserveData` struct.
+
+It takes in the id of the reserve as stored in the `DataTypes.ReserveData` struct
+
+```solidity
+function getReserveAddressById(uint16 id) external view returns (address) {
+    return _reservesList[id];
+  }
+```
+
+`**function MAX_STABLE_RATE_BORROW_SIZE_PERCENT()**`
+
+The function returns the percentage of available liquidity that can be borrowed at once at stable rate.
+
+```solidity
+function MAX_STABLE_RATE_BORROW_SIZE_PERCENT() public view virtual override returns (uint256) {
+    return _maxStableRateBorrowSizePercent;
+  }
+```
+
+`**function BRIDGE_PROTOCOL_FEE()**`
+
+This function is meant to return  the part of the bridge fees sent to protocol
+
+```solidity
+function BRIDGE_PROTOCOL_FEE() public view virtual override returns (uint256) {
+    return _bridgeProtocolFee;
+  }
+```
+
+`**function FLASHLOAN_PREMIUM_TOTAL()**`
+
+Returns the total fee on flash loans
+
+```solidity
+function FLASHLOAN_PREMIUM_TOTAL() public view virtual override returns (uint128) {
+    return _flashLoanPremiumTotal;
+  }
+```
+
+`**function FLASHLOAN_PREMIUM_TO_PROTOCOL()**`
+
+Returns the part of the bridge fees sent to protocol. The return value shows the bridge fee sent to the protocol treasury.
+
+```solidity
+function FLASHLOAN_PREMIUM_TO_PROTOCOL() public view virtual override returns (uint128) {
+    return _flashLoanPremiumToProtocol;
+  }
+```
+
+`**function MAX_NUMBER_RESERVES()**`
+
+Returns the maximum number of reserves supported to be listed in this Pool. The returned value states the maximum number of reserves supported.
+
+```solidity
+function MAX_NUMBER_RESERVES() public view virtual override returns (uint16) {
+    return ReserveConfiguration.MAX_RESERVES_COUNT;
+  }
+```
+
+`**function finalizeTransfer()**`
+
+This function validates and finalizes an aToken transfer. And it can only be called by the overlying aToken of the `asset`
+
+```solidity
+function finalizeTransfer(
+    address asset,
+    address from,
+    address to,
+    uint256 amount,
+    uint256 balanceFromBefore,
+    uint256 balanceToBefore
+  ) external virtual override {
+    require(msg.sender == _reserves[asset].aTokenAddress, Errors.CALLER_NOT_ATOKEN);
+    SupplyLogic.executeFinalizeTransfer(
+      _reserves,
+      _reservesList,
+      _eModeCategories,
+      _usersConfig,
+      DataTypes.FinalizeTransferParams({
+        asset: asset,
+        from: from,
+        to: to,
+        amount: amount,
+        balanceFromBefore: balanceFromBefore,
+        balanceToBefore: balanceToBefore,
+        reservesCount: _reservesCount,
+        oracle: ADDRESSES_PROVIDER.getPriceOracle(),
+        fromEModeCategory: _usersEModeCategory[from]
+      })
+    );
+  }
+```
+
+- **`address asset`:** The address of the underlying asset of the atoken
+- `address from` : The user from which the aTokens are transferred
+- `address to` : The user receiving the aTokens
+- `uint256 amount` : The amount being transferred/withdrawn
+- `uint256 balanceFromBefore` : The aToken balance of the `from` user before the transfer
+- `uint256 balanceToBefore` : The aToken balance of the `to` user before the transfer
+
+The function can only be called from outside the contract because it is marked as `external` , and `virtual`, indicating that it can be overridden in a derived contract. The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract.
+
+Inside the function, it first checks that the caller is the AToken for the asset being transferred. This is done using the `require` function, which reverts the transaction if the condition is not met.
+
+Then, it calls `SupplyLogic.executeFinalizeTransfer` with several parameters. This function is part of the `SupplyLogic` library, and it's responsible for executing the logic of finalizing the transfer. The parameters passed to it include:
+
+- cc`_reserves` : The state of all the reserves
+- `_reservesList` : The addresses of all the active reserves
+- `_eModeCategories` : The configuration of all the efficiency mode categories
+- A `DataTypes.FinalizeTransferParams` object, which is a struct that holds all the parameters for finalizing the transfer. This includes:
+    - `asset` and `from` and `to` which are the addresses of the asset and the users involved in the transfer.
+    - `amount` and `balanceFromBefore` and `balanceToBefore` which are the amount of the asset being transferred and the balances before the transfer.
+    - `reservesCount` which is the total count of reserves.
+    - `oracle` which is a function that returns the price oracle for the reserves.
+    - `fromEModeCategory` which is the category of the sender's EMode.
+
+`**function initReserve()**`
+
+This function initializes a reserve, activating it, assigning an aToken and debt tokens and an interest rate strategy. It is only callable by the `PoolConfigurator` contract.
+
+```solidity
+function initReserve(
+    address asset,
+    address aTokenAddress,
+    address stableDebtAddress,
+    address variableDebtAddress,
+    address interestRateStrategyAddress
+  ) external virtual override onlyPoolConfigurator {
+    if (
+      PoolLogic.executeInitReserve(
+        _reserves,
+        _reservesList,
+        DataTypes.InitReserveParams({
+          asset: asset,
+          aTokenAddress: aTokenAddress,
+          stableDebtAddress: stableDebtAddress,
+          variableDebtAddress: variableDebtAddress,
+          interestRateStrategyAddress: interestRateStrategyAddress,
+          reservesCount: _reservesCount,
+          maxNumberReserves: MAX_NUMBER_RESERVES()
+        })
+      )
+    ) {
+      _reservesCount++;
+    }
+  }
+```
+
+- `address asset` : The address of the underlying asset of the reserve
+- `address aTokenAddress` : The address of the aToken that will be assigned to the reserve
+- `address stableDebtAddress` : The address of the StableDebtToken that will be assigned to the reserve
+- `address variableDebtAddress` : The address of the VariableDebtToken that will be assigned to the reserve
+- `address interestRateStrategyAddress` : The address of the interest rate strategy contract
+
+The function is marked as `external`, meaning it can only be called from outside the contract, `virtual`, indicating that it can be overridden in a derived contract. The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract. The `onlyPoolConfigurator` modifier is used to restrict this function to be called only by the pool configurator.
+
+Inside the function, it first checks that the caller is the pool configurator using the `onlyPoolConfigurator` modifier. This is done to ensure that only authorized entities can initialize a new reserve.
+
+Then, it calls `PoolLogic.executeInitReserve` from the `PoolLogic` library with several parameters, and it's responsible for executing the logic of initializing the reserve. The parameters passed to it include:
+
+- `_reserves` : The state of all the reserves
+- `_reservesList` : The addresses of all the active reserves
+- A `DataTypes.InitReserveParams` object, which is a struct that holds all the parameters for initializing the reserve. This includes:
+    - `asset` and `aTokenAddress` and `stableDebtAddress` and `variableDebtAddress` and `interestRateStrategyAddress` which are the addresses of the asset, AToken, stable debt, variable debt, and interest rate strategy.
+    - `reservesCount` which is the total count of reserves.
+    - `maxNumberReserves` which is  the maximum number of reserves.
+
+`**function dropReserve()**`
+
+Drops a reserve and can only be called by the `PoolConfigurator` contract.
+
+```solidity
+function dropReserve(address asset) external virtual override onlyPoolConfigurator {
+    PoolLogic.executeDropReserve(_reserves, _reservesList, asset);
+  }
+```
+
+`**function setReserveInterestRateStrategyAddress()**`
+
+It updates the address of the interest rate strategy contract and can only be called by the `PoolConfigurator` contract.
+
+```solidity
+function setReserveInterestRateStrategyAddress(
+    address asset,
+    address rateStrategyAddress
+  ) external virtual override onlyPoolConfigurator {
+    require(asset != address(0), Errors.ZERO_ADDRESS_NOT_VALID);
+    require(_reserves[asset].id != 0 || _reservesList[0] == asset, Errors.ASSET_NOT_LISTED);
+    _reserves[asset].interestRateStrategyAddress = rateStrategyAddress;
+  }
+```
+
+- `address asset` : The address of the underlying asset of the reserve
+- `address rateStrategyAddress` : The address of the interest rate strategy contract
+
+The function is marked as `external`, meaning it can only be called from outside the contract, `virtual`, indicating that it can be overridden in a derived contract. The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract. The `onlyPoolConfigurator` modifier is used to restrict this function to be called only by the pool configurator.
+
+Inside the function, it first checks that the asset address is not the zero 
+address and that the asset is listed in the reserves. This is done using
+ the `require` function, which reverts the transaction if the condition is not met.
+
+Then, it sets the `interestRateStrategyAddress` of the reserve for the asset to `rateStrategyAddress`.
+
+`function setConfiguration()`
+
+It sets the configuration bitmap of the reserve as a whole and it can only be called by the `PoolConfigurator` contract.
+
+```solidity
+function setConfiguration(
+    address asset,
+    DataTypes.ReserveConfigurationMap calldata configuration
+  ) external virtual override onlyPoolConfigurator {
+    require(asset != address(0), Errors.ZERO_ADDRESS_NOT_VALID);
+    require(_reserves[asset].id != 0 || _reservesList[0] == asset, Errors.ASSET_NOT_LISTED);
+    _reserves[asset].configuration = configuration;
+```
+
+- `address asset` : The address of the underlying asset of the reserve
+- `configuration` : The new configuration bitmap
+
+The function is marked as `external`, meaning it can only be called from outside the contract, `virtual`, indicating that it can be overridden in a derived contract. The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract. The `onlyPoolConfigurator` modifier is used to restrict this function to be called only by the pool configurator.
+
+Inside the function, it first checks that the asset address is not the zero address and that the asset is listed in the reserves. This is done using the `require` function, which reverts the transaction if the condition is not met.
+
+`**function updateBridgeProtocolFee()**`
+
+Updates the protocol fee on the bridging.
+
+- `bridgeProtocolFee` : The part of the premium sent to the protocol treasury
+
+```solidity
+function updateBridgeProtocolFee(
+    uint256 protocolFee
+  ) external virtual override onlyPoolConfigurator {
+    _bridgeProtocolFee = protocolFee;
+  }
+```
+
+`**function updateFlashloanPremiums()**`
+
+This function updates flash loan premiums. Flash loan premium consists of two parts:
+
+- A part is sent to aToken holders as extra, one time accumulated interest
+- A part is collected by the protocol treasury
+
+The total premium is calculated on the total borrowed amount. The premium to protocol is calculated on the total premium, being a percentage of `flashLoanPremiumTotal` and it can only be called by the `PoolConfigurator` contract
+
+```solidity
+function updateFlashloanPremiums(
+    uint128 flashLoanPremiumTotal,
+    uint128 flashLoanPremiumToProtocol
+  ) external virtual override onlyPoolConfigurator {
+    _flashLoanPremiumTotal = flashLoanPremiumTotal;
+    _flashLoanPremiumToProtocol = flashLoanPremiumToProtocol;
+  }
+```
+
+- `flashLoanPremiumTotal`:  The total premium, expressed in bps
+- `flashLoanPremiumToProtocol`: The part of the premium sent to the protocol treasury, expressed in bps
+
+The `onlyPoolConfigurator` modifier is used to restrict this function to be called only by the pool configurator. It is also overriding a function with the same name in its parent contract.
+
+Inside the function, it sets `_flashLoanPremiumTotal` and `_flashLoanPremiumToProtocol` to `flashLoanPremiumTotal` and `flashLoanPremiumToProtocol` respectively.
+
+`**function configureEModeCategory()**`
+
+This function configures a new category for the eMode. In eMode, the protocol allows very high borrowing power to borrow assets of the same category. The category 0 is reserved as it's the default for volatile assets
+
+```solidity
+function configureEModeCategory(
+    uint8 id,
+    DataTypes.EModeCategory memory category
+  ) external virtual override onlyPoolConfigurator {
+    // category 0 is reserved for volatile heterogeneous assets and it's always disabled
+    require(id != 0, Errors.EMODE_CATEGORY_RESERVED);
+    _eModeCategories[id] = category;
+  }
+```
+
+- `uint8 id`  : The id of the category
+- `category`: This is the new EMode category for the user or group of users.
+
+The `onlyPoolConfigurator` modifier is used to restrict this function to be called only by the pool configurator. It is also overriding a function with the same name in its parent contract.
+
+Inside the function, it first checks that the ID is not 0, as the category 0 is reserved for volatile heterogeneous assets and it's always disabled. 
+This is done using the `require` function, which reverts the transaction if the condition is not met.
+
+Then, it sets the `EModeCategory` of the user or group of users with the specified ID to `category`.
+
+`function getEModeCategoryData()`
+
+Returns the data of an eMode category.
+
+```solidity
+function getEModeCategoryData(
+    uint8 id
+  ) external view virtual override returns (DataTypes.EModeCategory memory) {
+    return _eModeCategories[id];
+  }
+```
+
+The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract.
+
+Inside the function, it returns `_eModeCategories[id]`. This suggests that `_eModeCategories`
+ is a mapping that holds data about each user's EMode category. Each EMode category is an object that holds various settings or attributes related to the user or group of users. The function retrieves the EMode category data for the specified ID and returns it.
+
+`function setUserEMode()`
+
+Allows a user to use the protocol in eMode.
+
+```solidity
+function setUserEMode(uint8 categoryId) external virtual override {
+    EModeLogic.executeSetUserEMode(
+      _reserves,
+      _reservesList,
+      _eModeCategories,
+      _usersEModeCategory,
+      _usersConfig[msg.sender],
+      DataTypes.ExecuteSetUserEModeParams({
+        reservesCount: _reservesCount,
+        oracle: ADDRESSES_PROVIDER.getPriceOracle(),
+        categoryId: categoryId
+      })
+    );
+  }
+```
+
+- `uint8 categoryId`  : This is the ID of the EMode category to be set for the user.
+
+The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract.
+
+Inside the function, it calls `EModeLogic.executeSetUserEMode`
+with several parameters. This function is likely part of the `EModeLogic` library, and it's responsible for executing the logic of setting the EMode category. The parameters passed to it include:
+
+- `_reserves` : The state of all the reserves
+- `_reservesList` : The addresses of all the active reserves
+- `_eModeCategories` : The configuration of all the efficiency mode categorie
+- `_usersEModeCategory` which is  a data structure that holds information about the users' EMode categories.
+- `_usersConfig[msg.sender]` : The configuration of the user who is calling the function.
+- A `DataTypes.ExecuteSetUserEModeParams` object, which is a struct that holds all the parameters for executing the set user EMode operation. This includes:
+    - `reservesCount` The total count of reserves.
+    - `oracle` A function that returns the price oracle for the reserves.
+    - `categoryId` The ID of the EMode category to be set.
+
+`**function getUserEMode()**`
+
+Returns the eMode the user is using.
+
+- `address user` The address of the user
+
+```solidity
+function getUserEMode(address user) external view virtual override returns (uint256) {
+    return _usersEModeCategory[user];
+  }
+```
+
+`**function resetIsolationModeTotalDebt()**`
+
+Resets the isolation mode total debt of the given asset to zero. It requires that the given asset has zero debt ceiling.
+
+```solidity
+function resetIsolationModeTotalDebt(
+    address asset
+  ) external virtual override onlyPoolConfigurator {
+    PoolLogic.executeResetIsolationModeTotalDebt(_reserves, asset);
+  }
+```
+
+The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract. It takes in the address of the asset and  the `onlyPoolConfigurator` modifier is used to restrict this function to be called only by the pool configurator.
+
+Inside the function, it calls `PoolLogic.executeResetIsolationModeTotalDebt`  from the `PoolLogic`with `_reserves` and `asset`
+ as parameters, and it's responsible for executing the logic of resetting the 
+total debt in isolation mode.
+
+`function rescueTokens()`
+
+It rescues and transfers tokens locked in this contract.
+
+```solidity
+function rescueTokens(
+    address token,
+    address to,
+    uint256 amount
+  ) external virtual override onlyPoolAdmin {
+    PoolLogic.executeRescueTokens(token, to, amount);
+  }
+```
+
+The function takes three parameters:
+
+1. `token`: This is the address of the token to be rescued.
+2. `to`: This is the address to which the tokens will be transferred.
+3. `amount`: This is the amount of the token to be rescued.
+
+The function is marked as `external`, meaning it can only be called from outside the contract, `virtual`, indicating that it can be overridden in a derived contract. The `override` keyword is used to indicate that this function is overriding a function with the same name in its parent contract. The `onlyPoolAdmin` modifier is used to restrict this function to be called only by the pool administrator.
+
+Inside the function, it calls `PoolLogic.executeRescueTokens` with `token`, `to`, and `amount`
+ as parameters, and it's responsible for executing the logic of rescuing the 
+tokens.
